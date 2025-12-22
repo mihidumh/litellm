@@ -721,6 +721,7 @@ const sidebars = {
         "providers/meta_llama",
         "providers/milvus_vector_stores",
         "providers/mistral",
+        "providers/minimax_tts",
         "providers/moonshot",
         "providers/morph",
         "providers/nebius",

@@ -3013,6 +3013,7 @@ class LlmProviders(str, Enum):
     AMAZON_NOVA = "amazon_nova"
     A2A_AGENT = "a2a_agent"
     LANGGRAPH = "langgraph"
+    MINIMAX = "minimax"
 
 
 # Create a set of all provider values for quick lookup

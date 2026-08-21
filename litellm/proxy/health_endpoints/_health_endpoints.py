@@ -30,7 +30,7 @@ from litellm.proxy._types import (
     WebhookEvent,
 )
 from litellm.proxy.auth.auth_utils import (
-    _BANNED_REQUEST_BODY_PARAMS,  # pyright: ignore[reportPrivateUsage]  # one canonical list, shared with the request-body check
+    _CONNECTION_OVERRIDE_REQUEST_PARAMS,  # pyright: ignore[reportPrivateUsage]  # one canonical list, shared with the request-body check
 )
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.db.exception_handler import PrismaDBExceptionHandler
@@ -120,10 +120,18 @@ def _config_base_for_health_check(
     opt-in for callers supplying their own connection parameters. Where an admin
     has enabled it, a request may pair its own endpoint with the configured
     credentials, as it could before.
+
+    The trigger is ``_CONNECTION_OVERRIDE_REQUEST_PARAMS``, not the full banned
+    list: the custom-pricing fields are banned from a request body for a
+    different reason (they poison the shared model-cost registry) and say
+    nothing about which connection a test describes. Treating them as a
+    connection override empties the configuration under a request that only
+    named a model and its price, which reports a healthy deployment as
+    "Missing credentials".
     """
     if allow_client_side_credentials:
         return dict(config_params)
-    if not any(param in request_params for param in _BANNED_REQUEST_BODY_PARAMS):
+    if not any(param in request_params for param in _CONNECTION_OVERRIDE_REQUEST_PARAMS):
         return dict(config_params)
     return {key: value for key, value in config_params.items() if key not in _CONFIG_CONNECTION_FIELDS}
 

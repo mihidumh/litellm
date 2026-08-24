@@ -20,14 +20,9 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (  # noqa: E4
 )
 from opentelemetry.trace import SpanKind  # noqa: E402
 
-from litellm.integrations.otel.plumbing import context as ctx_mod  # noqa: E402
-from litellm.integrations.otel.plumbing import providers  # noqa: E402
-from litellm.integrations.otel.model.config import OpenTelemetryV2Config  # noqa: E402
 from litellm.integrations.otel.mappers.genai import GenAIMapper  # noqa: E402
 from litellm.integrations.otel.mappers.legacy import LegacyMapper  # noqa: E402
-from litellm.integrations.otel.plumbing.metrics import (
-    create_genai_metrics,
-)  # noqa: E402
+from litellm.integrations.otel.model.config import OpenTelemetryV2Config  # noqa: E402
 from litellm.integrations.otel.model.payloads import (  # noqa: E402
     GuardrailSpanData,
     LLMCallSpanData,
@@ -60,6 +55,11 @@ from litellm.integrations.otel.model.utils import (  # noqa: E402
     as_str,
     as_str_tuple,
 )
+from litellm.integrations.otel.plumbing import context as ctx_mod  # noqa: E402
+from litellm.integrations.otel.plumbing import providers  # noqa: E402
+from litellm.integrations.otel.plumbing.metrics import (
+    create_genai_metrics,
+)  # noqa: E402
 
 # --- typed coercion helpers ------------------------------------------------- #
 
@@ -524,9 +524,36 @@ def test_otlp_metric_exporter_uses_cumulative_histogram_temporality():
     reader = providers.build_metric_reader(
         OpenTelemetryV2Config(exporter="otlp_http", endpoint="http://h:4318")
     )
-    temporality = reader._exporter._preferred_temporality  # noqa: SLF001  # exporter exposes no public accessor
+    temporality = reader._exporter._preferred_temporality  # exporter exposes no public accessor
 
     assert temporality[Histogram] is AggregationTemporality.CUMULATIVE
+
+
+def test_metric_reader_default_interval_is_5s(monkeypatch):
+    monkeypatch.delenv("OTEL_METRIC_EXPORT_INTERVAL", raising=False)
+    reader = providers.build_metric_reader(OpenTelemetryV2Config(exporter="console"))
+    assert reader._export_interval_millis == 5000  # reader exposes no public accessor
+
+
+def test_metric_reader_honours_otel_metric_export_interval(monkeypatch):
+    """``OTEL_METRIC_EXPORT_INTERVAL`` is the standard knob for the export period.
+
+    The SDK reads it only when no explicit interval is passed, and litellm
+    passes one, so without this the variable is silently dead — and a 5s
+    cumulative export re-ships every series ever recorded twelve times a
+    minute regardless of traffic, which is what a per-datapoint-billed backend
+    charges for.
+    """
+    monkeypatch.setenv("OTEL_METRIC_EXPORT_INTERVAL", "60000")
+    reader = providers.build_metric_reader(OpenTelemetryV2Config(exporter="console"))
+    assert reader._export_interval_millis == 60000
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "0", "-5"])
+def test_metric_reader_rejects_bad_interval(monkeypatch, raw):
+    monkeypatch.setenv("OTEL_METRIC_EXPORT_INTERVAL", raw)
+    reader = providers.build_metric_reader(OpenTelemetryV2Config(exporter="console"))
+    assert reader._export_interval_millis == 5000
 
 
 def test_otlp_logs_endpoint_normalization():
@@ -715,8 +742,8 @@ def test_error_details_stamped_as_span_attributes_for_labels_ingest():
     attributes so backends that flatten attrs into label indexes (Elastic APM
     ``labels.*``, Datadog span tags) render them. The exception event with the
     full untruncated message stays alongside."""
-    from litellm.integrations.otel.model.semconv import Error, ExceptionEvent, LiteLLMError
     from litellm.integrations.otel.emitter import SpanEmitter
+    from litellm.integrations.otel.model.semconv import Error, ExceptionEvent, LiteLLMError
 
     cfg = OpenTelemetryV2Config(exporter="in_memory")
     provider, exporter = providers.in_memory_provider(cfg)

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import litellm
 from litellm.constants import (
+    DEFAULT_ANTHROPIC_CHAT_MAX_TOKENS,
     ANTHROPIC_MIN_THINKING_BUDGET_TOKENS,
     DEFAULT_REASONING_EFFORT_HIGH_THINKING_BUDGET,
     DEFAULT_REASONING_EFFORT_LOW_THINKING_BUDGET,
@@ -6409,3 +6410,26 @@ def test_response_format_tool_path_skips_forced_tool_choice_when_unsupported(loc
 
     assert "tools" in result
     assert "tool_choice" not in result
+
+
+@pytest.mark.usefixtures("local_model_cost_map")
+def test_get_max_tokens_for_model_versioned_vertex_id_uses_provider_key():
+    """A Vertex AI request carries the bare versioned id; only the provider-qualified
+    key exists in the cost map, so the provider must take part in the lookup."""
+    model = "claude-haiku-4-5@20251001"
+    expected = litellm.model_cost["vertex_ai/" + model]["max_output_tokens"]
+
+    assert AnthropicConfig.get_max_tokens_for_model(model) == DEFAULT_ANTHROPIC_CHAT_MAX_TOKENS
+    assert AnthropicConfig.get_max_tokens_for_model(model, custom_llm_provider="vertex_ai") == expected
+    assert AnthropicConfig.get_config(model=model, custom_llm_provider="vertex_ai")["max_tokens"] == expected
+
+
+@pytest.mark.usefixtures("local_model_cost_map")
+def test_get_max_tokens_for_model_provider_key_does_not_widen_unknown_models():
+    """Only an exact provider-qualified key counts; an unmapped id keeps the default."""
+    assert (
+        AnthropicConfig.get_max_tokens_for_model("claude-nope-9", custom_llm_provider="vertex_ai")
+        == DEFAULT_ANTHROPIC_CHAT_MAX_TOKENS
+    )
+    expected_sonnet = litellm.model_cost["claude-sonnet-5"]["max_output_tokens"]
+    assert AnthropicConfig.get_max_tokens_for_model("claude-sonnet-5", custom_llm_provider="anthropic") == expected_sonnet

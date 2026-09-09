@@ -775,3 +775,23 @@ def test_vertex_ai_anthropic_tool_based_response_format_still_upgrades_legacy_th
     assert "tools" in result_params
     assert result_params["thinking"] == {"type": "adaptive"}
     assert result_params["output_config"] == {"effort": "high"}
+
+
+@pytest.mark.usefixtures("local_model_cost_map")
+def test_vertex_ai_anthropic_missing_max_tokens_defaults_to_the_vertex_map_entry():
+    """No request max_tokens: the fill must come from the vertex_ai/<model> entry,
+    not from the 4096 fallback the bare versioned id used to hit."""
+    import litellm
+    from litellm.constants import DEFAULT_ANTHROPIC_CHAT_MAX_TOKENS
+
+    model = "claude-haiku-4-5@20251001"
+    result = VertexAIAnthropicConfig().transform_request(
+        model=model,
+        messages=[{"role": "user", "content": "Hello"}],
+        optional_params={"is_vertex_request": True},
+        litellm_params={},
+        headers={},
+    )
+
+    assert result["max_tokens"] == litellm.model_cost["vertex_ai/" + model]["max_output_tokens"]
+    assert result["max_tokens"] != DEFAULT_ANTHROPIC_CHAT_MAX_TOKENS

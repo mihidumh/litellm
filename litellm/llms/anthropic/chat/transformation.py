@@ -321,30 +321,45 @@ class AnthropicConfig(AnthropicModelInfo, BaseConfig):
         return self.custom_llm_provider or "anthropic"
 
     @classmethod
-    def get_config(cls, *, model: str | None = None):
+    def get_config(cls, *, model: str | None = None, custom_llm_provider: str | None = None):
         config: Final = super().get_config()
 
         # anthropic requires a default value for max_tokens
         if config.get("max_tokens") is None:
-            config["max_tokens"] = cls.get_max_tokens_for_model(model)
+            config["max_tokens"] = cls.get_max_tokens_for_model(model, custom_llm_provider=custom_llm_provider)
 
         return config
 
     @staticmethod
-    def get_max_tokens_for_model(model: str | None = None) -> int:
+    def _mapped_max_tokens(model: str) -> int | None:
+        """``get_max_tokens`` raises for an unmapped id; treat that as "unknown"."""
+        try:
+            return get_max_tokens(model)
+        except Exception:
+            return None
+
+    @classmethod
+    def get_max_tokens_for_model(cls, model: str | None = None, custom_llm_provider: str | None = None) -> int:
         """
         Get the max output tokens for a given model.
+
+        Looks the bare model id up first, then the provider-qualified id when
+        ``custom_llm_provider`` is given (a Vertex AI request carries the bare
+        ``claude-haiku-4-5@20251001`` while the cost map only knows
+        ``vertex_ai/claude-haiku-4-5@20251001``).
         Falls back to DEFAULT_ANTHROPIC_CHAT_MAX_TOKENS (configurable via env var) if model is not found.
         """
         if model is None:
             return DEFAULT_ANTHROPIC_CHAT_MAX_TOKENS
-        try:
-            max_tokens: Final = get_max_tokens(model)
-            if max_tokens is None:
-                return DEFAULT_ANTHROPIC_CHAT_MAX_TOKENS
+        max_tokens: Final = cls._mapped_max_tokens(model)
+        if max_tokens is not None:
             return max_tokens
-        except Exception:
-            return DEFAULT_ANTHROPIC_CHAT_MAX_TOKENS
+        provider_qualified_model: Final = f"{custom_llm_provider}/{model}" if custom_llm_provider else None
+        if provider_qualified_model is not None and provider_qualified_model in litellm.model_cost:
+            provider_max_tokens: Final = cls._mapped_max_tokens(provider_qualified_model)
+            if provider_max_tokens is not None:
+                return provider_max_tokens
+        return DEFAULT_ANTHROPIC_CHAT_MAX_TOKENS
 
     @staticmethod
     def convert_tool_use_to_openai_format(
@@ -1985,7 +2000,7 @@ class AnthropicConfig(AnthropicModelInfo, BaseConfig):
             optional_params["tools"] = tools
 
         ## Load Config
-        config: Final = litellm.AnthropicConfig.get_config(model=model)
+        config: Final = litellm.AnthropicConfig.get_config(model=model, custom_llm_provider=self._resolved_provider)
         for k, v in config.items():
             if (
                 k not in optional_params

@@ -460,7 +460,7 @@ class AnthropicChatCompletion(BaseLLM):
         # `get_config` merges the class-level defaults (Anthropic's required
         # `max_tokens` among them) that `transform_request` would have applied.
         rust_optional_params: Final = {  # mutable-ok: json.dumps in the bridge rejects a mappingproxy
-            **AnthropicConfig.get_config(model=model),
+            **AnthropicConfig.get_config(model=model, custom_llm_provider=custom_llm_provider),
             **optional_params,
         }
         serves_via_rust: Final = rust_chat_completions_accepts(
